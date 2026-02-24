@@ -16,9 +16,9 @@ def gen_bpe_freq(
     bpe_tokens = dict()
 
     for pretoken, count in freq_dict.items():
-        raw_bytes = bytes(pretoken)
+        raw_bytes = pretoken.encode()
         for i in range(len(raw_bytes) - 1):
-            key = tuple(bytes([raw_bytes[i]], bytes([raw_bytes[i + 1]])))
+            key = (bytes([raw_bytes[i]], bytes([raw_bytes[i + 1]])))
             if bpe_freq.get(key) is None:
                 bpe_freq[key] = 0
                 bpe_tokens = set()
@@ -39,7 +39,7 @@ class RawBpeProcessor(BpeProcessor):
         for i in range(256):
             initial_vocab[i] = bytes([i])
         for st in special_tokens:
-            initial_vocab[len(initial_vocab)] = bytes(st)
+            initial_vocab[len(initial_vocab)] = st.encode()
         self.vocab = initial_vocab
 
         # It seems hard to maintain the bpe_tokens mapping from tuple[bytes, bytes] to the token set, when
@@ -70,12 +70,11 @@ class RawBpeProcessor(BpeProcessor):
         tokens, freqs = list(), list()
         bpe_freq, bpe_tokens = dict(), dict()
         for token, freq in token_freq.items():
-            indices = [int(x) for x in bytes(token)]  # In the initial vocabulary, the indice is the same as the byte
+            indices = [int(x) for x in token.encode() ]  # In the initial vocabulary, the indice is the same as the byte
             for i in range(len(indices) - 1):
-                key = tuple(indices[i], indices[i + 1])
+                key = (indices[i], indices[i + 1])
                 bpe_freq[key] = bpe_freq.get(key, 0) + freq
-                bpe_tokens[key] = bpe_tokens.get(key, set()).add(len(tokens))
-
+                bpe_tokens.setdefault(key, set()).add(len(tokens))
             tokens.append(indices)
             freqs.append(freq)
 
@@ -89,12 +88,12 @@ class RawBpeProcessor(BpeProcessor):
                 cnt = count
             elif count == cnt and self._compare_bytes_pair(pair, bp) < 0:
                 pair = bp
-        return tuple(pair)
+        return pair
 
     def _compare_bytes_pair(self, pair1: tuple[int, int], pair2: tuple[int, int]) -> int:
         x1, y1 = self.vocab[pair1[0]], self.vocab[pair1[1]]
         x2, y2 = self.vocab[pair2[0]], self.vocab[pair2[1]]
-        return -1 if bytes(x1 + y1) < bytes(x2 + y2) else 1
+        return -1 if (x1 < x2 or (x1 == x2 and y1 < y2)) else 1
 
     def _do_merge(self, pair: tuple[int, int]):
         merged_bytes = bytes(self.vocab[pair[0]] + self.vocab[pair[1]])
@@ -106,47 +105,52 @@ class RawBpeProcessor(BpeProcessor):
         token_set = self.bpe_tokens.pop(pair)
         for i in token_set:
             ii, indices, new_indices = 0, self.tokens[i], []
-            while ii < len(indices) - 1:
-                if (indices[ii], indices[ii + 1]) == pair:
+            while ii < len(indices):
+                if ii < len(indices) - 1 and (indices[ii], indices[ii + 1]) == pair:
                     new_indices.append(indice)
                     ii += 2
                 else:
                     new_indices.append(indices[ii])
                     ii += 1
+            self.tokens[i] = new_indices
 
-            old_pair_freq, pair_freq, freq = dict(), dict(), self.freqs[i]
+            old_pair_freq, pair_freq, token_freq = dict(), dict(), self.freqs[i]
             for j in range(len(indices) - 1):
-                key = tuple(indices[j], indices[j + 1])
-                old_pair_freq[key] = old_pair_freq.get(key, 0) + freq
+                key = (indices[j], indices[j + 1])
+                old_pair_freq[key] = old_pair_freq.get(key, 0) + token_freq
             for j in range(len(new_indices) - 1):
-                key = tuple(new_indices[j], new_indices[j + 1])
-                pair_freq[key] = pair_freq.get(key, 0) + freq
+                key = (new_indices[j], new_indices[j + 1])
+                pair_freq[key] = pair_freq.get(key, 0) + token_freq
+
             for key, freq in old_pair_freq.items():
                 if key == pair:
                     continue
 
-                if not pair_freq.contains(key):  # Removed pairs
+                if key not in pair_freq:  # Removed pairs
                     self.bpe_tokens[key].remove(i)
                     self.bpe_freq[key] -= freq
                     continue
 
-                if pair_freq.pop(key) != freq:  # Updated pairs
+                if pair_freq.get(key) != freq:  # Updated pairs
                     self.bpe_freq[key] += pair_freq[key] - freq
+                pair_freq.pop(key)
 
+            assert pair not in pair_freq
             for key, freq in pair_freq.items():  # New pairs
-                self.bpe_tokens[key] = self.bpe_tokens.get(key, set()).add(i)
+                self.bpe_tokens.setdefault(key, set()).add(i)
                 self.bpe_freq[key] = self.bpe_freq.get(key, 0) + freq
-
-            self.tokens[i] = new_indices
 
     def get_vocabulary(self) -> dict[int, bytes]:
         return dict(self.vocab)
 
     def process(self, max_vocab_size: int) -> list[tuple[bytes, bytes]]:
         merges = list()
+
         while len(self.vocab) < max_vocab_size:
             pair = self._find_merge()
             self._do_merge(pair)
 
-            bytes_pair = tuple(self.vocab[pair[0]], self.vocab[pair[1]])
+            bytes_pair = (self.vocab[pair[0]], self.vocab[pair[1]])
             merges.append(bytes_pair)
+        return merges
+

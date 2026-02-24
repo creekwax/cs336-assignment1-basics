@@ -1,7 +1,7 @@
 import os
 from typing import BinaryIO
-import re
-from bpe_processor import RawBpeProcessor
+import regex as re
+from .bpe_processor import RawBpeProcessor
 
 
 GPT_PRETOKEN_REGEX = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
