@@ -2,7 +2,6 @@ from collections.abc import Iterable, Iterator
 import json
 import regex as re
 from .pretokenization import GPT_PRETOKEN_REGEX
-from concurrent.futures import ProcessPoolExecutor
 
 
 class Tokenizer:
@@ -13,6 +12,7 @@ class Tokenizer:
         special_tokens: list[str] | None = None,
     ):
         self.merges = merges
+        self.special_tokens = special_tokens
         self.vocab = {}  # bytes -> int
         for k, v in vocab.items():
             self.vocab[v] = k
@@ -63,19 +63,36 @@ class Tokenizer:
         tokenizer.vocab = vocab
         tokenizer.merges = merges
         tokenizer.reverse_vocab = rev_vocab
+        tokenizer.special_tokens = special_tokens
         return tokenizer
 
     def encode(self, text: str) -> list[int]:
+        segments = [ text ]
+        if self.special_tokens is not None:
+            pattern = "|".join([re.escape(st) for st in self.special_tokens])
+            segments = re.split(pattern, text)
+
+        result, pos, size = [], 0, len(text)
+        for segment in segments:
+            result += self._encode_segment(segment)
+            pos += len(segment)
+            if pos >= size:
+                break
+
+            for special_token in self.special_tokens:
+                width = len(special_token)
+                if text[pos : pos + width] == special_token:
+                    result.append(self.vocab[special_token.encode()])
+                    pos += width
+                    break
+        return result
+
+    def _encode_segment(self, text: str) -> list[int]: # segment without special_token
         result = []
         matches = re.finditer(GPT_PRETOKEN_REGEX, text)
-        tokens = [match.group().encode() for match in matches]
-        # for match in matches:
-        #     pretoken = match.group().encode()
-        #     result += self._encode_token(pretoken)
-        with ProcessPoolExecutor(max_workers=4) as executor:
-            results = list(executor.map(self._encode_token, tokens))
-        for res in results:
-            result += res
+        for match in matches:
+            pretoken = match.group().encode()
+            result += self._encode_token(pretoken)
         return result
 
     def _encode_token(self, token: bytes) -> list[int]:
