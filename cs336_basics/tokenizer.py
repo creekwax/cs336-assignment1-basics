@@ -1,4 +1,5 @@
 from collections.abc import Iterable, Iterator
+from concurrent.futures import ProcessPoolExecutor
 import json
 import regex as re
 from .pretokenization import GPT_PRETOKEN_REGEX
@@ -67,27 +68,25 @@ class Tokenizer:
         return tokenizer
 
     def encode(self, text: str) -> list[int]:
-        segments = [ text ]
+        segments = [text]
         if self.special_tokens is not None:
             pattern = "|".join([re.escape(st) for st in self.special_tokens])
-            segments = re.split(pattern, text)
+            segments = re.split(f'({pattern})', text)
 
-        result, pos, size = [], 0, len(text)
-        for segment in segments:
-            result += self._encode_segment(segment)
-            pos += len(segment)
-            if pos >= size:
-                break
-
-            for special_token in self.special_tokens:
-                width = len(special_token)
-                if text[pos : pos + width] == special_token:
-                    result.append(self.vocab[special_token.encode()])
-                    pos += width
-                    break
+        result = []
+        # for segment in segments:
+        #     result += self._encode_segment(segment)
+        with ProcessPoolExecutor() as executor:
+            for x in executor.map(self._encode_segment, segments):
+                result += x
         return result
 
-    def _encode_segment(self, text: str) -> list[int]: # segment without special_token
+    def _encode_segment(
+        self, text: str
+    ) -> list[int]:  # segment without special_token
+        if self.special_tokens is not None and text in self.special_tokens:
+            return [ self.vocab[text.encode()] ]
+
         result = []
         matches = re.finditer(GPT_PRETOKEN_REGEX, text)
         for match in matches:
