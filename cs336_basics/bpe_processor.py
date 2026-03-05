@@ -18,7 +18,7 @@ def gen_bpe_freq(
     for pretoken, count in freq_dict.items():
         raw_bytes = pretoken.encode()
         for i in range(len(raw_bytes) - 1):
-            key = (bytes([raw_bytes[i]], bytes([raw_bytes[i + 1]])))
+            key = bytes([raw_bytes[i]], bytes([raw_bytes[i + 1]]))
             if bpe_freq.get(key) is None:
                 bpe_freq[key] = 0
                 bpe_tokens = set()
@@ -70,7 +70,7 @@ class RawBpeProcessor(BpeProcessor):
         tokens, freqs = list(), list()
         bpe_freq, bpe_tokens = dict(), dict()
         for token, freq in token_freq.items():
-            indices = [int(x) for x in token.encode() ]  # In the initial vocabulary, the indice is the same as the byte
+            indices = [int(x) for x in token.encode()]  # In the initial vocabulary, the indice is the same as the byte
             for i in range(len(indices) - 1):
                 key = (indices[i], indices[i + 1])
                 bpe_freq[key] = bpe_freq.get(key, 0) + freq
@@ -153,4 +153,3 @@ class RawBpeProcessor(BpeProcessor):
             bytes_pair = (self.vocab[pair[0]], self.vocab[pair[1]])
             merges.append(bytes_pair)
         return merges
-
