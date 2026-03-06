@@ -1,5 +1,4 @@
 from collections.abc import Iterable, Iterator
-from concurrent.futures import ProcessPoolExecutor
 import json
 import regex as re
 from .pretokenization import GPT_PRETOKEN_REGEX
@@ -68,33 +67,34 @@ class Tokenizer:
         return tokenizer
 
     def encode(self, text: str) -> list[int]:
+        result = []
+        for _id in self._encode_yield(text):
+            result.append(_id)
+        return result
+
+    def _encode_yield(self, text: str) -> Iterable[int]:
         segments = [text]
         if self.special_tokens is not None:
             pattern = "|".join([re.escape(st) for st in self.special_tokens])
-            segments = re.split(f'({pattern})', text)
+            segments = re.split(f"({pattern})", text)
 
-        result = []
-        # for segment in segments:
-        #     result += self._encode_segment(segment)
-        with ProcessPoolExecutor() as executor:
-            for x in executor.map(self._encode_segment, segments):
-                result += x
-        return result
+        for segment in segments:
+            yield from self._encode_segment(segment)
 
     def _encode_segment(
-        self, text: str
-    ) -> list[int]:  # segment without special_token
+        self,
+        text: str,  # segment without special_token
+    ) -> Iterable[int]:
         if self.special_tokens is not None and text in self.special_tokens:
-            return [ self.vocab[text.encode()] ]
+            yield self.vocab[text.encode()]
+            return
 
-        result = []
         matches = re.finditer(GPT_PRETOKEN_REGEX, text)
         for match in matches:
             pretoken = match.group().encode()
-            result += self._encode_token(pretoken)
-        return result
+            yield from self._encode_token(pretoken)
 
-    def _encode_token(self, token: bytes) -> list[int]:
+    def _encode_token(self, token: bytes) -> Iterable[int]:
         bytes_list = [bytes([i]) for i in token]
         for merge in self.merges:
             merged_bytes = []
@@ -107,11 +107,11 @@ class Tokenizer:
                     i += 1
                 i += 1
             bytes_list = merged_bytes
-        return [self.vocab[x] for x in bytes_list]
+        yield from [self.vocab[x] for x in bytes_list]
 
     def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
         for text in iterable:
-            yield from self.encode(text)
+            yield from self._encode_yield(text)
 
     def decode(self, ids: list[int]) -> str:
         result = bytes([])
